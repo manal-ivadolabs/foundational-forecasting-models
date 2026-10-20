@@ -1,0 +1,4 @@
+.gcp-auth:
+  before_script:
+    - |
+      echo "TODO: GCP authentication is not yet implemented - contact jonathan.marcil@ivadolabs.com for help"

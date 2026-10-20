@@ -1,0 +1,22 @@
+trigger: none
+
+parameters:
+  - name: release_type
+    displayName: Release type
+    type: string
+    default: patch
+    values:
+      - major
+      - minor
+      - patch
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: tag
+    displayName: Create semver tag
+    jobs:
+      - template: ../templates/tag-job.yaml
+        parameters:
+          release_type: ${{ parameters.release_type }}

@@ -1,0 +1,50 @@
+parameters:
+  - name: environment
+    type: string
+  - name: version
+    type: string
+  - name: pool_provider_name
+    type: string
+
+jobs:
+  - deployment: deploy
+    displayName: Deploy to ${{ parameters.environment }}
+    environment: ${{ parameters.environment }}
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+              fetchDepth: 0
+              fetchTags: true
+
+            - script: |
+                set -euo pipefail
+                git checkout ${{ parameters.version }}
+              displayName: Checkout version
+
+            - template: gcp-auth-steps.yaml
+              parameters:
+                pool_provider_name: ${{ parameters.pool_provider_name }}
+
+            - script: |
+                set -euo pipefail
+                curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh \
+                  | sh -s -- --install-method standalone
+              displayName: Install OpenTofu
+
+            - script: |
+                set -euo pipefail
+                tofu init
+              displayName: Initialize OpenTofu
+              workingDirectory: infra/${{ parameters.environment }}
+
+            - script: |
+                set -euo pipefail
+                tofu apply -auto-approve
+              displayName: Apply OpenTofu
+              workingDirectory: infra/${{ parameters.environment }}
+              env:
+                GOOGLE_APPLICATION_CREDENTIALS: $(System.DefaultWorkingDirectory)/gcp-wif-config.json

@@ -1,0 +1,47 @@
+plan:dev:
+  stage: plan
+  extends: .tofu-plan
+  variables:
+    ENVIRONMENT: dev
+    VERSION: $CI_COMMIT_SHA
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+    - when: never
+
+deploy:dev:
+  stage: deploy-dev
+  extends: .tofu-apply
+  variables:
+    ENVIRONMENT: dev
+    VERSION: $CI_COMMIT_SHA
+  needs:
+    - job: plan:dev
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+    - when: never
+
+plan:qa:
+  stage: plan
+  extends: .tofu-plan
+  variables:
+    ENVIRONMENT: qa
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+deploy:qa:
+  stage: deploy-qa
+  extends: .tofu-apply
+  variables:
+    ENVIRONMENT: qa
+  needs:
+    - job: plan:qa
+      artifacts: true
+    - job: deploy:dev
+      artifacts: false
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual

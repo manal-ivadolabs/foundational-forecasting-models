@@ -1,0 +1,96 @@
+trigger: none
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: common-vars
+  - name: UV_CACHE_DIR
+    value: $(Build.SourcesDirectory)/.uv_cache
+  - name: PREK_CACHE_DIR
+    value: $(Build.SourcesDirectory)/.prek-cache
+
+stages:
+  - stage: ci
+    displayName: Continuous Integration
+    jobs:
+      - job: build_and_test
+        displayName: Build & Test
+        steps:
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0
+            fetchTags: true
+            displayName: Checkout
+
+          - template: ../templates/gcp-auth-steps.yaml
+            parameters:
+              pool_provider_name: $(POOL_PROVIDER_NAME)
+
+          - task: Cache@2
+            inputs:
+              key: 'prek|.pre-commit-config.yaml'
+              restoreKeys: prek
+              path: $(PREK_CACHE_DIR)
+            displayName: Cache (prek)
+            name: CachePreCommit
+
+          - task: Cache@2
+            inputs:
+              key: 'uv|$(Agent.OS)|uv.lock'
+              restoreKeys: uv|$(Agent.OS)|
+              path: $(UV_CACHE_DIR)
+            displayName: Cache (uv)
+            name: CacheUV
+
+          - script: |
+              set -euo pipefail
+              make setup
+            displayName: Setup Repository
+            name: SetupRepo
+            env:
+              UV_LINK_MODE: copy
+              GOOGLE_APPLICATION_CREDENTIALS: $(System.DefaultWorkingDirectory)/gcp-wif-config.json
+
+          - script: |
+              set -euo pipefail
+              uvx prek --version
+              uvx prek install --install-hooks
+              git fetch origin main
+              git diff --name-only origin/main | xargs -d '\n' uvx prek run --verbose --show-diff-on-failure --files
+            displayName: Run git hooks
+            name: RunGitHooks
+            env:
+              PREK_HOME: $(PREK_CACHE_DIR)
+
+          - script: |
+              set -euo pipefail
+              make coverage
+            displayName: PyTest (with reports)
+            name: RunPyTest
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: reports/junit/junit.xml
+              failTaskOnFailedTests: true
+              testRunTitle: Unit tests
+            displayName: Publish PyTest results
+            name: PublishPyTestResults
+
+          - task: PublishCodeCoverageResults@2
+            inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: reports/coverage/coverage.xml
+            displayName: Publish coverage report
+            name: PublishCoverageReport
+
+          - script: uv cache prune --ci
+            displayName: Prune uv cache
+            name: PruneUVCache
+            condition: always()

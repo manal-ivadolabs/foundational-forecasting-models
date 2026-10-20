@@ -1,0 +1,13 @@
+name: Build docs
+description: Builds the Zensical docs site into `site/`.
+
+runs:
+  using: composite
+  steps:
+    - name: Build documentation
+      shell: bash
+      run: |
+        make install-uv install-python
+        export PATH=$HOME/.local/bin:$PATH
+        uv sync --only-group docs --frozen --no-install-project
+        uv run --no-project zensical build

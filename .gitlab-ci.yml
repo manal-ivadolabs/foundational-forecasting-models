@@ -1,0 +1,19 @@
+stages:
+  - test
+  - plan
+  - deploy-dev
+  - deploy-qa
+  - release
+  - plan-prod
+  - deploy-prod
+  - pages
+
+include:
+  - component: $CI_SERVER_FQDN/components/opentofu/job-templates@24eeefe08dae99c7f1a33b1ad2af0bf52590f57e # 4.9.0
+    inputs:
+      opentofu_version: 1.12.0
+  - local: .gitlab/templates/gcp-auth.yml
+  - local: .gitlab/templates/tofu.yml
+  - local: .gitlab/ci/ci.yml
+  - local: .gitlab/ci/cd.yml
+  - local: .gitlab/ci/release.yml

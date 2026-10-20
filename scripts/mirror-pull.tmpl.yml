@@ -1,0 +1,168 @@
+name: Mirror Pull
+
+on:
+  schedule:
+    # @@SCHEDULE_HUMAN@@
+    - cron: "@@SCHEDULE@@"
+      timezone: "America/Montreal"
+  workflow_dispatch:
+
+env:
+  # Set to "true" to automatically disable this workflow and open a tracking issue
+  # when the source has not been updated in over MIRROR_STALE_DAYS
+  MIRROR_STALE_ENFORCE: "false"
+  MIRROR_STALE_DAYS: "90"
+  # Skip unnecessary mirror runs if the source has not been updated
+  # (must be larger than the longest gap between scheduled runs)
+  MIRROR_GAP_SECONDS: "86400"  # 1 day
+
+permissions:
+  contents: write
+  id-token: write   # required for Workload Identity Federation
+  actions: write    # disable this workflow when stale
+  issues: write     # open a tracking issue when stale
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud (WIF, zero secrets)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: "@@WIF_PROVIDER@@"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Skip if the source bundle has not changed in over MIRROR_GAP_SECONDS
+        id: gate
+        run: |
+          # A manual run (workflow_dispatch) always syncs, regardless of bundle age.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual run — syncing regardless of bundle age."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          UPDATED="$(gcloud storage objects describe "@@GCP_BUCKET@@/repo.bundle" --format='value(updated)' 2>/dev/null || true)"
+          if [ -z "$UPDATED" ]; then
+            echo "No bundle found (the source may not have pushed yet) — nothing to mirror."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          AGE=$(( $(date -u +%s) - $(date -u -d "$UPDATED" +%s) ))
+          echo "Bundle last updated ${UPDATED} (${AGE}s ago)."
+          echo "updated=${UPDATED}" >> "$GITHUB_OUTPUT"
+          # This AGE window must stay LARGER than the longest gap between scheduled runs
+          if [ "$AGE" -gt "$MIRROR_GAP_SECONDS" ]; then
+            echo "Older than $MIRROR_GAP_SECONDS seconds — nothing new to mirror. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          STALE_SECONDS=$(( MIRROR_STALE_DAYS * 86400 ))
+          if [ "${MIRROR_STALE_ENFORCE}" = "true" ] && [ "$AGE" -gt "$STALE_SECONDS" ]; then
+            echo "Stale for over ${MIRROR_STALE_DAYS} days and enforcement enabled — will disable this workflow and open an issue."
+            echo "enforce_stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enforce_stale=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Disable this workflow and open an issue when the mirror is stale
+        if: steps.gate.outputs.enforce_stale == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          workflow="mirror-pull.yml"
+          if gh api --method PUT "repos/${repo}/actions/workflows/${workflow}/disable" >/dev/null 2>&1; then
+            action_line="The \`${workflow}\` workflow has been **disabled automatically** — re-enable it from the Actions tab once the source mirror is healthy again."
+          else
+            action_line="⚠️ Automatic disable failed (insufficient token permission) — please disable \`${workflow}\` manually from the Actions tab."
+          fi
+          # Open a tracking issue, de-duplicated on a label so repeated stale runs don't pile up duplicates.
+          label="mirror-stale"
+          gh label create "$label" --color B60205 --description "Mirror sync has gone stale" >/dev/null 2>&1 || true
+          existing="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "A stale-mirror issue is already open (#${existing}) — not opening another."
+          else
+            {
+              echo "This repository is a one-way mirror, and its source bundle has not been updated in **over ${MIRROR_STALE_DAYS} days** (last update: ${{ steps.gate.outputs.updated }})."
+              echo "The source repository has most likely stopped pushing to it."
+              echo
+              echo "${action_line}"
+            } > stale-issue.md
+            gh issue create \
+              --title "Mirror sync is stale — no source update in over ${MIRROR_STALE_DAYS} days" \
+              --label "$label" \
+              --body-file stale-issue.md
+          fi
+
+      - name: Download mirror artifacts from GCS
+        if: steps.gate.outputs.skip != 'true'
+        run: gcloud storage cp "@@GCP_BUCKET@@/*" .
+
+      - name: Restore repository from bundle
+        if: steps.gate.outputs.skip != 'true'
+        run: git clone repo.bundle mirrored-repo
+
+      - name: Restore LFS objects
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          git lfs install
+          if [ -f lfs-objects.tar.gz ]; then
+            tar -xzvf lfs-objects.tar.gz -C mirrored-repo/.git
+            git -C mirrored-repo lfs checkout || true
+          else
+            echo "No LFS archive present."
+          fi
+
+      - name: Disable mirrored workflows (keep files, prevent execution)
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          pip install git-filter-repo==2.47.0
+          cd mirrored-repo
+          git filter-repo --force --path-rename .github/workflows/:.github/disabled-workflows/
+
+      - name: Force-push mirror (all branches + tags)
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          cd mirrored-repo
+          git remote add target "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/@@TARGET_SLUG@@.git"
+          git lfs push --all target || true
+          # git-filter-repo migrated every source branch to refs/heads/* (and removed
+          # 'origin'), so --all mirrors them all. Delete a source branch literally named
+          # 'il-mirror-sync-runner' first so we can never overwrite the target's own runner branch.
+          git branch -D il-mirror-sync-runner 2>/dev/null || true
+          # --force overwrites divergent history. We deliberately do NOT use --mirror/--prune:
+          # those would delete the target's il-mirror-sync-runner branch (and any target-only branch).
+          # Trade-off: branches deleted on the source are left stale on the target.
+          git push --force --all target
+          git push --force --tags target
+
+      - name: Merge default branch into il-mirror-sync-runner
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          cd mirrored-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The source's default branch is whatever the bundle clone checked out as HEAD —
+          # usually 'main', but detect it so a 'master'/other default also works. It is a
+          # local branch here, so no fetch is needed.
+          DEFAULT_BRANCH="$(git symbolic-ref --short HEAD)"
+          # Bring the target's own orphan runner branch in, then merge the mirrored default
+          # branch into it so the target's default branch carries the real repo content
+          # alongside the puller workflow. Their histories are unrelated by design (the
+          # bootstrap created il-mirror-sync-runner as an orphan), hence --allow-unrelated-histories;
+          # after the first merge they share history and the flag is a harmless no-op. The
+          # 'target' remote (with its token) was added by the previous step and persists.
+          # -X theirs makes the mirrored source win any path that collides — the runner
+          # workflow (.github/workflows/) and the mirror (.github/disabled-workflows/) live
+          # at different paths so a clash is unlikely, but this keeps the merge automatic
+          # (non-interactive) if one ever occurs. Files unique to il-mirror-sync-runner (the runner
+          # workflow) aren't in conflict, so they survive untouched.
+          git fetch target il-mirror-sync-runner
+          git checkout -B il-mirror-sync-runner target/il-mirror-sync-runner
+          git merge "$DEFAULT_BRANCH" --allow-unrelated-histories -X theirs \
+            -m "chore: merge ${DEFAULT_BRANCH} into il-mirror-sync-runner"
+          git push target il-mirror-sync-runner

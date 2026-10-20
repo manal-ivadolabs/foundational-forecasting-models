@@ -1,0 +1,18 @@
+/* Global styles for every page. Targets st-key-* classes from `st.container(key=...)`. */
+
+.st-key-app_footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    padding: 1em 0;
+    line-height: 1.25em;
+    z-index: 1000;
+}
+
+/* Streamlit sets `text-align: left` on its own markdown wrapper, which beats
+   inheritance from the container, so centre the descendants explicitly. */
+.st-key-app_footer * {
+    text-align: center;
+}

@@ -1,0 +1,29 @@
+trigger: none
+
+parameters:
+  - name: environment
+    displayName: Target environment
+    type: string
+    values:
+      - dev
+      - qa
+      - prod
+  - name: version
+    displayName: Version to deploy (tag or commit SHA)
+    type: string
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: common-vars
+
+stages:
+  - stage: deploy
+    displayName: Deploy to ${{ parameters.environment }}
+    jobs:
+      - template: ../templates/deploy-job.yaml
+        parameters:
+          environment: ${{ parameters.environment }}
+          version: ${{ parameters.version }}
+          pool_provider_name: $(POOL_PROVIDER_NAME)

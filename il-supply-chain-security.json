@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ivado-labs/appsec-tools/main/il-supply-chain-security/src/il_supply_chain_security/core/schema/tracking.schema.json",
+  "schema_version": 1,
+  "generated_by": "il-supply-chain-security 0.2.3",
+  "modules": {
+    "pin-curl": {
+      "files": [
+        "Makefile"
+      ],
+      "entries": [
+        {
+          "file": "Makefile",
+          "ref": "https://github.com/astral-sh/uv/releases/download/{version}/uv-installer.sh",
+          "pinned": "0.12.24 sha256:e8c19f8dbfaafcbeddc8d17bf9227505d918220eba2aeb543d6922bdc5bb9625",
+          "pinned_published_at": "2026-10-08T20:06:20Z",
+          "updated_at": "2026-10-15T20:40:25Z",
+          "min_age_days": 7,
+          "held_back_published_at": null,
+          "source_url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-installer.sh",
+          "previous": "0.12.23 sha256:b8e6c43099ee9f9a550984d3ad56948457c689e7a99c090b35377234ac241491"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+
+  # Same build as the release, so broken docs fail here instead of mid-release
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/build-docs
+
+  pre-commits:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Cache prek
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/prek/
+          key: prek-cache|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - uses: ./.github/actions/uv-cache
+      - uses: ./.github/actions/gcp-auth
+
+      - name: Setup
+        run: make setup
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.6.0
+
+      - name: Run prek hooks on changed files
+        run: |
+          git fetch --no-tags --depth=1 origin +${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}
+          git diff --name-only origin/${{ github.event.pull_request.base.ref || 'main' }} | xargs -d '\n' --no-run-if-empty uv run prek run --verbose --show-diff-on-failure --hook-stage=manual --files
+
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/uv-cache
+      - uses: ./.github/actions/gcp-auth
+
+      - name: Setup
+        run: |
+          make install-uv install-keyring install-python
+          export PATH=$HOME/.local/bin:$PATH
+          uv sync --all-extras --all-groups --frozen
+
+      - name: Run tests
+        run: make test

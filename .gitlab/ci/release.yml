@@ -1,0 +1,179 @@
+.release-base:
+  stage: release
+  image: ubuntu:latest
+  variables:
+    GIT_DEPTH: 0
+    GIT_FETCH_EXTRA_FLAGS: --tags
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git curl jq
+    - git config user.email "gitlab-ci[bot]@users.noreply.gitlab.com"
+    - git config user.name "gitlab-ci[bot]"
+    - git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+  script:
+    - set -euo pipefail
+    - VERSION=$(bash scripts/semver.sh "$RELEASE_TYPE")
+    - 'echo "New version: $VERSION"'
+    - |
+      if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+        TAGGED_COMMIT=$(git ls-remote --tags origin "refs/tags/$VERSION" | awk '{print $1}')
+        HEAD_COMMIT=$(git rev-parse HEAD)
+        if [ "$TAGGED_COMMIT" = "$HEAD_COMMIT" ]; then
+          echo "Tag $VERSION already exists on this commit, reusing it."
+        else
+          echo "Error: Tag $VERSION already exists on a different commit. Delete it in the GitLab UI (Repository > Tags) or with: git push origin --delete $VERSION"
+          exit 1
+        fi
+      else
+        git tag "$VERSION"
+        git push origin "$VERSION"
+      fi
+    - PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -1 || echo "")
+    - |
+      {
+        echo "# Release $VERSION"
+        echo ""
+        if [ -n "$PREV_TAG" ]; then
+          git log "$PREV_TAG..HEAD" --pretty=format:"- %s" --no-merges
+        else
+          git log HEAD --pretty=format:"- %s" --no-merges
+        fi
+      } > CHANGELOG.md
+    - |
+      jq -n --arg name "Release $VERSION" --arg tag "$VERSION" --rawfile desc CHANGELOG.md \
+        '{name: $name, tag_name: $tag, description: $desc}' \
+      | curl --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" --header "Content-Type: application/json" \
+          --data @- "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases"
+    - echo "VERSION=$VERSION" >> release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+release:patch:
+  extends: .release-base
+  variables:
+    RELEASE_TYPE: patch
+
+release:minor:
+  extends: .release-base
+  variables:
+    RELEASE_TYPE: minor
+
+release:major:
+  extends: .release-base
+  variables:
+    RELEASE_TYPE: major
+
+plan:prod:patch:
+  stage: plan-prod
+  extends: .tofu-plan
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: release:patch
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+plan:prod:minor:
+  stage: plan-prod
+  extends: .tofu-plan
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: release:minor
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+plan:prod:major:
+  stage: plan-prod
+  extends: .tofu-plan
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: release:major
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+deploy:prod:patch:
+  stage: deploy-prod
+  extends: .tofu-apply
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: plan:prod:patch
+      artifacts: true
+    - job: release:patch
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+deploy:prod:minor:
+  stage: deploy-prod
+  extends: .tofu-apply
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: plan:prod:minor
+      artifacts: true
+    - job: release:minor
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+deploy:prod:major:
+  stage: deploy-prod
+  extends: .tofu-apply
+  variables:
+    ENVIRONMENT: prod
+  needs:
+    - job: plan:prod:major
+      artifacts: true
+    - job: release:major
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+rollback:prod:
+  stage: deploy-prod
+  extends: .tofu-base
+  variables:
+    ENVIRONMENT: prod
+  script:
+    - tofu apply -auto-approve
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+pages:
+  stage: pages
+  image: ubuntu:latest
+  variables:
+    UV_LINK_MODE: copy
+    GIT_DEPTH: 0
+    GIT_FETCH_EXTRA_FLAGS: --tags
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git make curl
+  script:
+    - make install-uv install-python
+    - export PATH=$HOME/.local/bin:$PATH
+    - uv sync --only-group docs --frozen
+    - uv run zensical build
+    - mv site public
+  artifacts:
+    paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual

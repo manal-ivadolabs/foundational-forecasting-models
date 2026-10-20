@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      version:
+        description: 'Version to deploy (tag or commit)'
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment (dev, qa, or prod)'
+        required: true
+        type: string
+      version:
+        description: 'Version to deploy (tag or commit)'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.version }}
+
+    - uses: ./.github/actions/gcp-auth
+
+    - name: Set up OpenTofu
+      uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      with:
+        tofu_version: 1.6.0
+
+    - name: Initialize OpenTofu
+      run: tofu init
+      working-directory: ./infra/${{ inputs.environment }}
+
+    - name: Apply OpenTofu configuration
+      run: tofu apply -auto-approve
+      working-directory: ./infra/${{ inputs.environment }}

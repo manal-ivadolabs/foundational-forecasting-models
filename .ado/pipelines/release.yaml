@@ -1,0 +1,111 @@
+trigger: none
+
+parameters:
+  - name: release_type
+    displayName: Release type
+    type: string
+    default: patch
+    values:
+      - major
+      - minor
+      - patch
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: common-vars
+
+stages:
+  - stage: tag
+    displayName: Create semver tag
+    jobs:
+      - template: ../templates/tag-job.yaml
+        parameters:
+          release_type: ${{ parameters.release_type }}
+
+  - stage: release_notes
+    displayName: Publish release notes
+    dependsOn: tag
+    variables:
+      version: $[ stageDependencies.tag.tag.outputs['determine_version.version'] ]
+    jobs:
+      - job: publish_release_notes
+        displayName: Generate and publish changelog
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            fetchTags: true
+
+          - script: |
+              set -euo pipefail
+              NEW_VERSION="$(version)"
+              PREV_TAG=$(git tag --sort=-version:refname | grep -v "^$NEW_VERSION$" | head -1 || echo "")
+
+              mkdir -p $(Build.ArtifactStagingDirectory)
+              {
+                echo "# Release $NEW_VERSION"
+                echo ""
+                if [ -n "$PREV_TAG" ]; then
+                  git log "$PREV_TAG..HEAD" --pretty=format:"- %s" --no-merges
+                else
+                  git log HEAD --pretty=format:"- %s" --no-merges
+                fi
+              } > $(Build.ArtifactStagingDirectory)/CHANGELOG.md
+            displayName: Generate changelog
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish changelog artifact
+            inputs:
+              PathtoPublish: $(Build.ArtifactStagingDirectory)/CHANGELOG.md
+              ArtifactName: release-notes
+
+  - stage: deploy_prod
+    displayName: Deploy to prod
+    dependsOn: [tag, release_notes]
+    variables:
+      version: $[ stageDependencies.tag.tag.outputs['determine_version.version'] ]
+    jobs:
+      - template: ../templates/deploy-job.yaml
+        parameters:
+          environment: prod
+          version: $(version)
+          pool_provider_name: $(POOL_PROVIDER_NAME)
+
+  - stage: deploy_docs
+    displayName: Deploy docs
+    dependsOn: deploy_prod
+    jobs:
+      - job: deploy_docs
+        displayName: Build and deploy docs to Azure Static Web Apps
+        steps:
+          - checkout: self
+
+          - task: Cache@2
+            displayName: Cache uv
+            inputs:
+              key: '"uv" | "$(Agent.OS)" | uv.lock'
+              path: $(HOME)/.cache/uv
+              restoreKeys: '"uv" | "$(Agent.OS)"'
+
+          - script: |
+              set -euo pipefail
+              make install-uv install-python
+              export PATH=$HOME/.local/bin:$PATH
+              uv sync --only-group docs --frozen
+            displayName: Setup CI
+            env:
+              UV_LINK_MODE: copy
+
+          - script: uv run zensical build
+            displayName: Build docs
+
+          - script: cp .ado/login.html site/login.html && cp .ado/staticwebapp.config.json site/staticwebapp.config.json
+            displayName: Add login page and SWA config
+
+          - task: AzureStaticWebApp@0
+            displayName: Deploy to Azure Static Web Apps
+            inputs:
+              app_location: site
+              skip_app_build: true
+              azure_static_web_apps_api_token: $(AZURE_STATIC_WEB_APPS_API_TOKEN)

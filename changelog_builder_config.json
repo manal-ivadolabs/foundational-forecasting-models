@@ -1,0 +1,44 @@
+{
+    "categories": [
+        {
+            "title": "## 🚀 Features",
+            "labels": ["feat"]
+        },
+        {
+            "title": "## 🐛 Fixes",
+            "labels": ["fix"]
+        },
+        {
+            "title": "## 🧪 Tests",
+            "labels": ["test"]
+        },
+        {
+            "title": "## 📚 Docs",
+            "labels": ["docs"]
+        },
+        {
+            "title": "## ⚡ Performance",
+            "labels": ["perf"]
+        },
+        {
+            "title": "## 🔄 Refactor",
+            "labels": ["refactor"]
+        },
+        {
+            "title": "## 🔧 Other",
+            "labels": ["build", "chore", "ci", "style", "revert"]
+        }
+    ],
+    "sort": "ASC",
+    "template": "${{CHANGELOG}}",
+    "pr_template": "- ${{TITLE}}",
+    "empty_template": "- no changes",
+    "max_pull_requests": 1000,
+    "max_back_track_time_days": 1000,
+    "label_extractor": [
+        {
+            "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+            "target": "$1"
+        }
+    ]
+}

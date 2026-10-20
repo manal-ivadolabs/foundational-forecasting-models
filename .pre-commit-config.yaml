@@ -1,0 +1,94 @@
+default_install_hook_types: [pre-commit, commit-msg, post-checkout, post-merge, pre-push]
+default_stages: [pre-commit, manual]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: fix-byte-order-marker
+      - id: check-ast
+      - id: name-tests-test
+        exclude: tests/utils/
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: destroyed-symlinks
+      - id: check-added-large-files
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: no-commit-to-branch
+        args: [ "--branch", "main", "--pattern", "release/.*"]
+        stages: [pre-commit]
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: 4fbeae7861663ecf4b4989211eba41c1a3fb1227 # v4.13.9
+    hooks:
+      - id: commitizen
+      - id: commitizen-branch
+        stages: [ pre-push ]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: e05c5c0818279e5ac248ac9e954431ba58865e61  # frozen: v0.15.7
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+          - --exit-non-zero-on-fix
+      - id: ruff-format
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: e3daa3b1abb0f966fc89f674fdf01eebd84c2eec  # frozen: 0.10.12
+    hooks:
+      - id: uv-lock
+  - repo: https://github.com/kynan/nbstripout
+    rev: 34071b78c181af3bf5af955c1426466e096fc3db # v0.9.1
+    hooks:
+      - id: nbstripout
+  - repo: https://github.com/tofuutils/pre-commit-opentofu
+    rev: 10864545ddc58bd96330029b6bff16da3d072237 # v2.2.2
+    hooks:
+      - id: tofu_fmt
+  - repo: local
+    hooks:
+      - id: worktree-init
+        name: initialise a new worktree
+        entry: bash scripts/worktree-init.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-checkout]
+  - repo: local
+    hooks:
+      - id: check-symlinks
+        name: check tracked symlinks resolve
+        entry: bash scripts/check-symlinks.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: uv run ty check .
+        language: system
+        pass_filenames: false
+  # Opt in by uncommenting this block.
+  # - repo: local
+  #   hooks:
+      # - id: supply-chain
+      #   name: Supply-chain references pinned
+      #   entry: uv run il-supply-chain-security auto-pin --check
+      #   language: system
+      #   pass_filenames: false
+      #   always_run: true
+      #   stages: [pre-commit, manual]
+
+  - repo: local
+    hooks:
+      - id: dotenv-example
+        name: Generate .env.example automagically
+        entry: uv run kickstart dotenv --packages project_name_to_change
+        language: system
+        files: '.*\.py$'
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+        stages: [pre-commit, manual]

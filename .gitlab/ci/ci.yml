@@ -1,0 +1,56 @@
+tofu:validate:
+  stage: test
+  extends: [.opentofu:validate]
+  variables:
+    GITLAB_TOFU_ROOT_DIR: infra/dev
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+pre-commit:
+  stage: test
+  image: ubuntu:latest
+  variables:
+    PREK_CACHE_DIR: "$CI_PROJECT_DIR/.prek-cache"
+    UV_LINK_MODE: copy
+  cache:
+    - key: prek|$CI_DEFAULT_BRANCH
+      paths: [.prek-cache/]
+  script:
+    - apt-get update -qq && apt-get install -y -qq git make curl
+    - make install-uv install-python
+    - export PATH=$HOME/.local/bin:$PATH
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - git diff --name-only "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" | xargs -d '\n' --no-run-if-empty uvx prek run --verbose --show-diff-on-failure --files
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+test:
+  stage: test
+  image: ubuntu:latest
+  needs: [pre-commit]
+  variables:
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv_cache"
+    UV_LINK_MODE: copy
+  cache:
+    - key: uv|$CI_RUNNER_EXECUTABLE_ARCH|$CI_DEFAULT_BRANCH
+      paths: [.uv_cache/]
+      fallback_keys:
+        - uv|$CI_RUNNER_EXECUTABLE_ARCH|
+  script:
+    - apt-get update -qq && apt-get install -y -qq git make curl
+    - make install-uv install-python
+    - export PATH=$HOME/.local/bin:$PATH
+    - uv sync --frozen --group test
+    - make coverage
+  coverage: '/TOTAL.*\s(\d+%)$/'
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: reports/coverage/coverage.xml
+  after_script:
+    - uv cache prune --ci
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

@@ -1,0 +1,65 @@
+# For the available configuration, see https://zensical.org/docs/setup/basics/
+[project]
+site_name = "project_name_to_change" # CHANGE ME
+site_url = "" # Set after deployment (e.g. https://your-site.azurestaticapps.net)
+repo_url = "https://github.com/ivado-labs/python-project-template/" # CHANGE ME
+repo_name = "ivado-labs/python-project-template" # CHANGE ME
+edit_uri = "edit/main/docs/"
+copyright = '&copy; 2024 <a href="https://github.com/ivado-labs" target="_blank" rel="noopener">Ivado Labs</a>' # CHANGE ME
+
+[project.theme]
+language = "en"
+logo = "assets/logo/ivado_labs.png" # CHANGE ME
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "search.suggest",
+  "toc.integrate",
+]
+
+[project.theme.icon]
+annotation = "material/chevron-right-circle"
+repo = "fontawesome/brands/github"
+
+# Color palettes for light and dark mode. Prefer a pre-defined color over custom CSS.
+# See https://zensical.org/docs/setup/colors/ for the options.
+[[project.theme.palette]]
+scheme = "default"
+primary = "amber"
+accent = "amber"
+toggle.icon = "material/toggle-switch"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "amber"
+accent = "amber"
+toggle.icon = "material/toggle-switch-off"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+footnotes = {}
+md_in_html = {}
+pymdownx.arithmatex.generic = true
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.inlinehilite = {}
+pymdownx.mark = {}
+# Renders GitHub-style `> [!NOTE]` callouts, so docs read the same on GitHub and on the site
+pymdownx.quotes.callouts = true
+pymdownx.snippets = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]

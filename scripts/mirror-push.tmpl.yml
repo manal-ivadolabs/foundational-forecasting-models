@@ -1,0 +1,54 @@
+name: Mirror Push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for Workload Identity Federation
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history + LFS)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Authenticate to Google Cloud (WIF, zero secrets)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: "@@WIF_PROVIDER@@"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Create git bundle (all branches + tags)
+        run: |
+          # actions/checkout (even with fetch-depth: 0) leaves only the triggering branch as a
+          # local refs/heads/* ref; every other branch is just refs/remotes/origin/*. A bundle
+          # made now would store those under refs/remotes/*, and `git clone <bundle>` on the
+          # puller adopts only the bundle's refs/heads/* — so all branches but 'main' would be
+          # silently dropped. Detach HEAD (so the current branch ref is free to update) and
+          # fetch every branch into refs/heads/* so the bundle carries them as real branches.
+          git checkout --detach
+          git fetch origin '+refs/heads/*:refs/heads/*'
+          git bundle create repo.bundle --all
+
+      - name: Package LFS objects
+        run: |
+          if [ -d .git/lfs ]; then
+            tar -czvf lfs-objects.tar.gz -C .git lfs
+          else
+            echo "No LFS objects to package."
+          fi
+
+      - name: Upload mirror artifacts to GCS
+        run: |
+          files="repo.bundle"
+          [ -f lfs-objects.tar.gz ] && files="$files lfs-objects.tar.gz"
+          gcloud storage cp $files "@@GCP_BUCKET@@/"

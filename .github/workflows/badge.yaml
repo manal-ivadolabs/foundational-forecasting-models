@@ -1,0 +1,58 @@
+name: Update Coverage Badge
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  coverage-badge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/uv-cache
+      - uses: ./.github/actions/gcp-auth
+
+      - name: Setup
+        run: |
+          make install-uv install-keyring install-python
+          export PATH=$HOME/.local/bin:$PATH
+          uv sync --all-extras --all-groups --frozen
+
+      - name: Run tests and create coverage badge
+        run: make coverage
+
+      - name: Commit and push coverage badge
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          # Disable git hooks: the badges branch has no .pre-commit-config.yaml
+          git config --local core.hooksPath /dev/null
+          # Push coverage.svg to the dedicated badges branch (orphan if it doesn't exist)
+          cp coverage.svg /tmp/coverage.svg
+          git checkout -- coverage.svg
+          git fetch origin badges 2>/dev/null || true
+          if git ls-remote --exit-code origin refs/heads/badges; then
+            git checkout badges
+          else
+            git checkout --orphan badges
+            git rm -rf . --quiet
+          fi
+          cp /tmp/coverage.svg coverage.svg
+          git add coverage.svg
+          if git diff --cached --quiet; then
+            echo "coverage.svg is already up to date on badges branch, skipping commit."
+          else
+            git commit -m "chore: Update coverage.svg after PR merge"
+            git push origin badges
+          fi

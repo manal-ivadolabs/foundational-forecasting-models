@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Select the type of release'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  tag:
+    uses: ./.github/workflows/tag.yaml
+    with:
+      release_type: ${{ inputs.release_type }}
+
+  github-release:
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Build changelog
+      id: build_changelog
+      uses: mikepenz/release-changelog-builder-action@cb021f9b36a51a7c6f18e4679b6fa2cb77a1260c # v6.3.0
+      with:
+        mode: "COMMIT"
+        configuration: "changelog_builder_config.json"
+
+    - name: Create GitHub release
+      uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+      with:
+        tag: ${{ needs.tag.outputs.version }}
+        name: Release ${{ needs.tag.outputs.version }}
+        body: ${{ steps.build_changelog.outputs.changelog }}
+
+  deploy-prod:
+    needs: tag
+    uses: ./.github/workflows/deploy.yaml
+    with:
+      environment: prod
+      version: ${{ needs.tag.outputs.version }}
+    secrets: inherit
+
+  # TODO: Remove the following jobs if not working on an internal initiative. If not using zensical, see https://docs.ivadolabs.com/gringotts/
+  build-docs:
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: ./.github/actions/build-docs
+    - name: Upload docs
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: documentation
+        path: site
+
+  deploy-docs:
+    uses: ivado-labs/gringotts/.github/workflows/upload-doc.yaml@main
+    needs: build-docs
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      artifact_name: documentation

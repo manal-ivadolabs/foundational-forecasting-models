@@ -1,0 +1,39 @@
+.tofu-base:
+  image:
+    name: registry.gitlab.com/components/opentofu/gitlab-opentofu:4.6.0-opentofu1.12.0-alpine
+    entrypoint: [""]
+  extends: .gcp-auth
+  variables:
+    GIT_DEPTH: 0
+    GIT_FETCH_EXTRA_FLAGS: --tags
+  cache:
+    key: tofu|${ENVIRONMENT}|${CI_DEFAULT_BRANCH}
+    paths:
+      - infra/${ENVIRONMENT}/.terraform/providers
+  before_script:
+    - !reference [.gcp-auth, before_script]
+    - |
+      if [ -n "${VERSION:-}" ]; then
+        git checkout "$VERSION"
+      fi
+    - cd "infra/${ENVIRONMENT}"
+    - tofu init
+
+.tofu-plan:
+  extends: .tofu-base
+  script:
+    - tofu validate
+    - tofu plan -out plan.out
+    - tofu show -no-color plan.out > plan.txt
+  artifacts:
+    name: "${ENVIRONMENT}-plan"
+    paths:
+      - infra/${ENVIRONMENT}/plan.out
+      - infra/${ENVIRONMENT}/plan.txt
+    when: always
+    expire_in: 1 week
+
+.tofu-apply:
+  extends: .tofu-base
+  script:
+    - tofu apply plan.out

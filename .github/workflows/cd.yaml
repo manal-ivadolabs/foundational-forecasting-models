@@ -1,0 +1,32 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+  # TODO: Build and push any artifacts (e.g., container images, packages) tagged with ${{ github.sha }}
+
+  deploy-dev:
+    needs: get-version
+    uses: ./.github/workflows/deploy.yaml
+    with:
+      environment: dev
+      version: ${{ github.sha }}
+    secrets: inherit
